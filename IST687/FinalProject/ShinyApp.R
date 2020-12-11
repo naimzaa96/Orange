@@ -1,3 +1,4 @@
+# Shiny app to alleviate repetition of map creation
 
 # for UI, allow for dropdown menu that subsets relevant column vectors
 
