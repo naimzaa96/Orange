@@ -1,0 +1,200 @@
+## Packages needed for anaylsis
+These are the necessary packages needed to run throughout our analysis.
+
+```{r}
+library(tidyverse)  # data manipulation
+library(dplyr)
+library(lmtest)
+library(MASS)
+library(car)
+library(arules)
+library(arulesViz)
+library(ggplot2)  # data visualization
+library(caret)    # implementing with caret
+library(naivebayes) # naive bayes package
+require(e1071)
+require(rpart)
+require(stringr)
+require(randomForest)
+library(rpart) 
+library(rsample)
+library(tidyverse)    # data manipulation and visualization
+library(kernlab)      # SVM methodology
+library(e1071)        # SVM methodology
+library(RColorBrewer) # customized coloring of plots
+library(FSelector)
+library(RWeka)       # Weka
+library(party)       # A computational toolbox for recursive partitioning
+library(partykit)    # A toolkit with infrastructure for representing, summarizing, and visualizing tree-structured regression and classification models.
+library(pROC)
+```
+
+# Data Preparation
+
+```{r}
+setwd("~/Desktop/GradSchool/Classes/IST707/FinalProj/")
+hd_rawdata <- read.csv("processed.cleveland.data.csv", header = FALSE)
+```
+
+As mentioned earlier, the documentation included in the repo outlines that all ML experiments took a subset of 14 of 76 columns. When loading the data set in, we find that the columns are not labeled. We refer to the notes within the documentation to prepare the data set with the appropriate column names. 
+The full list of features in our data set are
+
+- Age; numeric value in years
+- Sex; binary values with 1 indicated for Male and 0 for Female 
+- Chest Pain Type; ordinal values from 1 to 4 for chest pain types: typical, atypical, non-anginal and asymptomatic
+- Resting Blood Pressure; numeric values measured at time of admission
+- Cholesterol Level; numeric values 
+- Fasting Blood Sugar Level; binary value where true indicates patient fasting blood sugar above 120mg/dl
+- Rest Electrocardiographs results; categorical ECG results for normal, ST-T segment abnormality, and left-ventricular hypertrophy
+- Maximum Heart Rate induced by Exercise; numeric
+- Exercise induced chest pain; binary value with 1 indicating yes or true
+- ST segment depression induced by Exercise; value of slope ST depression
+- The slope of the ST depression induced by Exercise; categorical values with 1 indicating upwards slope, 3 indicating downwards slope and 2 indicating a flat slope
+- Total number of major vessels
+- Evidence of Thalassemia; categorical indicator of inherited blood disorder with 3 meaning normal, 6 a fixed defect and 7 a reversible defect.
+- Diagnosis; ordinal values of heart disease presence with 0 having no heart disease and 1-4 ranging on the severity of the heart disease present.
+
+```{r}
+header_names <-  c('age','sex','cp',
+                   'rbp','chol','fbs','recg',
+                   'thalach','ex_angina','oldpeak','slope_oldpeak',
+                   'ca','thal','diagnosis')
+colnames(hd_rawdata) <- header_names
+head(hd_rawdata)
+```
+
+In checking for null values we find that 
+
+```{r}
+hd_rawdata$ca <- as.numeric(hd_rawdata$ca)
+hd_rawdata$thal <- as.numeric(hd_rawdata$thal)
+```
+
+```{r}
+colSums(is.na(hd_rawdata))
+```
+All data is displayed numerically. But this won't mean much to the average person. Following the heart-disease names documentation provided, we will try to rename some of the values and factorize to reflect back to the original data.
+
+```{r}
+hd_rawdata[is.na(hd_rawdata$thal),]
+hd_rawdata[is.na(hd_rawdata$ca),]
+```
+```{r}
+median(hd_rawdata$thal, na.rm = TRUE)
+hd_rawdata$thal <- replace_na(hd_rawdata$thal,median(hd_rawdata$thal,na.rm = TRUE))
+median(hd_rawdata$ca, na.rm = TRUE)
+hd_rawdata$ca <- replace_na(hd_rawdata$ca,median(hd_rawdata$ca,na.rm = TRUE))
+```
+```{r}
+table(hd_rawdata$sex,hd_rawdata$diagnosis,dnn = c('sex','diagnosis'))
+table(hd_rawdata$diagnosis,hd_rawdata$cp,dnn = c('diagnosis','chest pain'))
+table(hd_rawdata$diagnosis,hd_rawdata$fbs,dnn = c('diagnosis','fasting blood sugar > 120 mg/dl '))
+table(hd_rawdata$diagnosis,hd_rawdata$recg,dnn = c('diagnosis','rest ECG'))
+table(hd_rawdata$diagnosis,hd_rawdata$ex_angina,dnn = c('diagnosis','exercise-induced angina?'))
+table(hd_rawdata$diagnosis,hd_rawdata$ca,dnn = c('diagnosis','# major vessels'))
+table(hd_rawdata$diagnosis,hd_rawdata$thal,dnn = c('diagnosis','thalassemia (disorder)'))
+```
+
+
+```{r}
+hd_clean <- hd_rawdata
+hd <- hd_clean
+hd$diagnosis[hd$diagnosis>0] <- 1
+hd_allnum <- hd
+```
+
+```{r}
+hd.cor <- cor(hd)
+corrplot::corrplot(hd.cor)
+```
+
+
+
+```{r}
+#factor diagnosis
+hd$diagnosis <- factor(hd$diagnosis, labels = c("NoHD", "HD"))
+#sex
+hd$sex <- factor(hd$sex, labels = c("F", "M"))
+#exercise induced angina?
+hd <- hd %>% mutate(ex_angina = ifelse(ex_angina == 1,'T','F'))
+hd$ex_angina <- as.factor(hd$ex_angina)
+# is the fasting blood sugar > 120 mg/dl?
+hd <- hd %>% mutate(fbs = ifelse(fbs == 1,'T','F'))
+hd$fbs <- as.factor(hd$fbs)
+# resting blood pressure, heart.org
+hd <- hd %>% mutate(rbp = ifelse(rbp <= 120,"Norm","Hyper"))
+hd$rbp <- as.factor(hd$rbp)
+# chest pain experienced
+hd <- hd %>% mutate(cp = ifelse(cp == 1,"Typ",
+                                        ifelse(cp == 2, "ATyp",
+                                          ifelse(cp==3,"Non-ang_pain","Asymp"))))
+hd$cp <- as.factor(hd$cp)
+#resting electrocardiographic results
+hd <- hd %>% mutate(recg = ifelse(recg == 0,"Norm",
+                                     ifelse(recg == 1, "STTAbnorm","lvent_hyper")))  
+hd$recg <- as.factor(hd$recg)
+#cholesterol levels
+hd <- hd %>% mutate(chol = ifelse(chol > 240,"High",
+                                  ifelse(chol < 200,"Norm","AtRisk")))  
+hd$chol <- as.factor(hd$chol)
+# slope of ST depression induced by exercise relative to rest at peak segment
+hd <- hd %>% mutate(slope_oldpeak = ifelse(slope_oldpeak == 1,"Up",
+                                     ifelse(slope_oldpeak == 2, "Flat","Down")))  
+hd$slope_oldpeak <- as.factor(hd$slope_oldpeak)
+# blood disorder called thalassemia
+hd$thal <- as.factor(hd$thal)
+levels(hd$thal) <- c('Norm','Fxd_Def','Rev_Def')
+# count of major vessels
+hd$ca <- as.factor(hd$ca)
+levels(hd$ca) <- c(0,1,2,3)
+#max heart rate achieved results, hopkinsmedicine.org
+hd <- hd %>% mutate(thalach = ifelse(thalach > (220-age)*.85,"High","Norm"))
+hd$thalach <-  as.factor(hd$thalach)
+hd <- hd %>% mutate(age_disc = cut(age, breaks = c(20,30,40,50,60,70,100), labels = c("twenties","thirties","forties","fifties", "sixties","seventies")))
+hd <- subset(hd,select = -age)
+```
+
+```{r}
+table(hd$diagnosis,hd$sex)
+```
+
+```{r}
+table(hd$diagnosis,hd$age_disc)
+table(hd$diagnosis,hd$rbp)
+table(hd$diagnosis,hd$chol)
+table(hd$diagnosis,hd$recg)
+table(hd$diagnosis,hd$slope_oldpeak)
+```
+
+Looking at patient Ages
+
+```{r}
+hist(hd_allnum$age, main = 'Ages of the Patients',xlab = 'Age',border = 'black',col = 'lightblue',xlim = c(20,80))
+ggplot(hd_allnum) + geom_violin(aes(y = age, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Age")
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = thalach, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Max Heart Rate")
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = rbp, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Resting Blood Pressure")
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = oldpeak, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by ST Depression caused by exercise")
+```
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = chol, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Cholesterol")
+```
+
+## Summary 
+
+Our above exploration has revealed many notable findings within our dataset. In regards to medical research, it is widely known that there is bias in the findings of many papers. Historically,women and minorities are often underrepresented in research groups, and thus generalization leads to sometimes fatally incorrect diagnosis' due to the differences in biologies between underrepresented populations and white males. Thus it was no surprise that after pre-processing, it was found that more than half of the patients in our data set were males. More specifically, 114 of 139 patients that were diagnosed as having heart disease were male. Does this mean that females are typically healthier than males? Not necessarily. But this shows how one must be careful of solely relying on ML algorithms to predict whether or not a patient will, or has heart disease. 
+
+Some other interesting things to point out:
+
+- Very few patients indicated normal chest pain (angina)
+- Many patients whom are healthy have ST Depression of zero, or normal ECG results
+- Healthier patients can reach a higher max heart rate when exercising
+- The majority of patients with heart disease are in there 50's-early 60's
