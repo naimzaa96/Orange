@@ -1,0 +1,467 @@
+# Training and Testing Classification Algorithms
+
+## SVM 
+
+
+```{r}
+set.seed(707)
+hd_allnum$diagnosis <- as.factor(hd_allnum$diagnosis)
+levels(hd_allnum$diagnosis) <- c('noHD', 'HD')
+svm_split <- createDataPartition(hd_allnum$diagnosis, p = 2/3, list = FALSE)
+svm_train <- hd_allnum[svm_split, ]
+svm_test  <- hd_allnum[-svm_split, ]
+```
+
+
+### Model 1: SVM with Linear kernel
+
+For the a linear SVM, the only parameter needed to vary is C, and as mentioned before the out put of the search grid aims to find the C value that gives the highest accuracy.
+
+```{r}
+set.seed(707)
+search_grid = expand.grid(C = seq(0.1, 2, length = 10))
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3,
+  classProbs = TRUE
+  )
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10,
+  classProbs = TRUE
+  )
+system.time(svm.Linear <-  train(diagnosis ~., data = svm_train, 
+      method = "svmLinear", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+# top 5 modesl
+svm.Linear$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+# results for best model
+confusionMatrix(svm.Linear)
+```
+
+```{r}
+pred <- predict(svm.Linear, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+```{r}
+pred_numeric = predict(svm.Linear, newdata = svm_test, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+
+## SVM with Polynomial Kernel
+
+The polynomial kernel function can be implemented with the SVM algorithm. As such, the parameters needed will add complexity to the searching space. Due to the size of the data set, we will evaluate polynomials of degree 2 and degree 3. The scale reflects the precision required for the polynomial parameter tuning. C is reduced to 10 choices. This search grid produces 180 possible models, which means that the time to compute will be fairly large for this data set.
+
+```{r}
+set.seed(707)
+search_grid = expand.grid(degree=c(2,3),
+                          scale = c(0.001, 0.01, 0.1, 1.0),
+                          C = seq(0.1, 2, length = 10))
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+system.time(svm.Poly1 <-  train(diagnosis ~., data = svm_train, 
+      method = "svmPoly", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+      
+# top 5 modesl
+svm.Poly1$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+# results for best model
+confusionMatrix(svm.Poly1,)
+```
+```{r}
+pred <- predict(svm.Poly1, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(svm.Poly1, newdata = svm_test ,type = "prob")
+```
+
+### SVM with Radial Kernel
+
+The radial kernel function may be implemented as well, when it is found that the data is not linearly separable. Two parameters are necessary here to tune, with 5 choices each. Here sigma accounts for how smooth the decision boundary will be. The combinations between C and sigma will produce 75 possible models and is also expected to have a long compute time.
+
+```{r}
+set.seed(707)
+search_grid = expand.grid(sigma = seq(0.1, 2, length=10),
+                      C = seq(0.1, 2, length = 10))
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+# more advanced option, run 3 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+system.time(svm.Radial <- train(diagnosis ~., data = svm_train, 
+      method = "svmRadial", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+# top 5 modesl
+svm.Radial$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+# results for best model
+confusionMatrix(svm.Radial)
+```
+
+```{r}
+pred <- predict(svm.Radial, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(svm.Radial, newdata = svm_test)
+```
+
+
+## Decision Trees
+
+```{r}
+set.seed(707)
+hd_split <- createDataPartition(hd$diagnosis, p = 2/3, list = FALSE)
+train_data <- hd[hd_split, ]
+test_data  <- hd[-hd_split, ]
+information.gain(diagnosis~., data = train_data)
+```
+
+
+### Model 1: 
+
+```{r}
+set.seed(707)
+## build up a default C4.5 model
+DT_m1 <- J48 (diagnosis~., data = train_data)
+## use cross-validation tech to evaluate the model
+eval_DT1 <- evaluate_Weka_classifier(DT_m1, numFolds = 10, class = TRUE) # setting the number of folds to 10 for all models
+## show the performance
+print(paste("accuracy: ", eval_DT1$details['pctCorrect']))
+## predict the results for test data
+pred=predict(DT_m1, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+if(require("party", quietly = TRUE)) plot(DT_m1)
+```
+
+```{r}
+pred_numeric = predict(DT_m1, newdata = test_data, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+### Model 2: Tuning Hyperparametrs with CV
+```{r}
+## set up potential values for confidence factor and minimum number of instances
+C.values <- c(0.01,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.5)
+M.values <- c(2,3,4,5,6,7,8,9,10)
+## variable to record the best model
+best_performance = 0.0
+best_c <- 0.0
+best_m <- 0.0
+for (i in 1:length(C.values)) {
+  
+  for (j in 1:length(M.values)) {
+    
+    c_value = C.values[i]
+    
+    m_value = M.values[j]
+    
+    m <- J48(diagnosis~., data = train_data, 
+             control = Weka_control(U=FALSE, C = c_value, M=m_value))
+  
+    e <- evaluate_Weka_classifier(m,
+                                  numFolds = 10, complexity = TRUE,
+                                  seed = 9, class = TRUE)
+    if (e$details['pctCorrect'] > best_performance) {
+      best_performance <- e$details['pctCorrect']
+      
+      best_c <- c_value
+      best_m <- m_value
+    }
+    
+  }
+    
+}
+print(paste("best accuracy: ", best_performance))
+print(paste("best m: ", best_m))
+print(paste("best c: ", best_c))
+DT_m2 <- J48(diagnosis~., data = train_data, control=Weka_control(U=FALSE, M=best_m, C=best_c))
+pred <- predict(DT_m2, newdata = test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+if(require("party", quietly = TRUE)) plot(DT_m2)
+```
+```{r}
+pred_numeric = predict(DT_m2, newdata = test_data, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+### Model 3: Using Validation Set instead of CV
+
+```{r}
+inTrain<-createDataPartition(y = train_data$diagnosis,p=0.75,list = FALSE)
+training_set<-train_data[inTrain,]
+valid_set<-train_data[-inTrain,]
+M.values <- c(3,4,5,6,7,8,9,10)
+best_performance = 0.0
+best_m <- 0.0
+for (j in 1:length(M.values)) {
+  
+  c_value = C.values[i]
+  
+  m_value = M.values[j]
+  
+  m <- J48(diagnosis~., data = training_set, 
+           control = Weka_control(R=TRUE, M=m_value))
+  e <- evaluate_Weka_classifier(m, newdata = valid_set,
+                           complexity = TRUE,class = TRUE)
+  if (e$details['pctCorrect'] > best_performance) {
+    best_performance <- e$details['pctCorrect']
+    
+    best_m <- m_value
+  }
+  
+}
+print(paste("best accuracy: ", best_performance))
+print(paste("best m: ", best_m))
+DT_m3 <- J48(diagnosis~., data = training_set, control=Weka_control(R=TRUE, M=best_m))
+pred <- predict(DT_m3, newdata = test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+```{r}
+pred_numeric = predict(DT_m3, newdata = test_data, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+## Random Forest
+```{r}
+# for reproduciblity
+set.seed(707)
+# default RF model
+system.time(rf <- randomForest(
+  formula = diagnosis ~ .,
+  data = train_data,
+  ntree = 500,
+  mtry = 1,
+  proximity = TRUE  
+))
+rf
+plot(rf)
+# results for best model
+#confusionMatrix(rf)
+pred <- predict(rf, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(rf, newdata = test_data, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+```{r}
+set.seed(707)
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+rf.m1 <- train(diagnosis ~., data = train_data, 
+      method = "rf",
+      metric = 'Accuracy',
+      trControl = train_control)
+# top 5 models
+rf.m1$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+# results for best model
+CM <- confusionMatrix(rf.m1)
+CM
+```
+
+
+```{r}
+pred <- predict(rf.m1, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(rf.m1, newdata = test_data, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+
+## Naïve Bayes
+
+### Model 1: Base naïve Bayes model with 3-fold cross validation. 
+
+Similar to the decision tree approach, we create a baseline model we can compare the model, with k-fold equal to 3. 
+There are different approaches in which package to use to apply naïve Bayes. In this investigation we will stick with the caret package that allows us to implement the same framework as with our decision tree, and keep track of the hyperparameters that we will be tuning.
+
+```{r}
+# create response and feature data
+features <- setdiff(names(svm_train), "diagnosis")
+x <- svm_train[, features]
+y <- svm_train$diagnosis
+```
+
+```{r}
+set.seed(707)
+# train model
+nb.m1 <- train(
+  x = x,
+  y = y,
+  method = "naive_bayes",
+  trControl = train_control
+  )
+# results
+confusionMatrix(nb.m1)
+```
+
+```{r}
+pred <- predict(nb.m1, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+```{r}
+pred_numeric = predict(nb.m1, newdata = svm_test, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+### Model 2: Optimizing our naïve Bayes model
+
+```{r}
+set.seed(707)
+# set up tuning grid
+search_grid_nb <- expand.grid(usekernel = c(TRUE, FALSE),
+                         laplace = c(0, 1), 
+                         adjust = c(0.5,1,2))
+# train model
+nb.m2 <- train(
+  x = x,
+  y = y,
+  method = "naive_bayes",
+  trControl = train_control,
+  tuneGrid = search_grid_nb
+  )
+# results for best model
+confusionMatrix(nb.m2)
+```
+Not much improvement in when we utilized a search grid.
+
+```{r}
+pred <- predict(nb.m2, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+We see that the recall has not changed at all, but the F1 score has dropped a little.
+
+```{r}
+pred_numeric = predict(nb.m2, newdata = svm_test, type="prob")
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
