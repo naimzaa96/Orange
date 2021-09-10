@@ -1,0 +1,68 @@
+## Linear Regression
+
+
+### Model 1: All features included
+
+```{r}
+set.seed(707)
+summary(lm(diagnosis~ . , data = hd_allnum))
+```
+As a baseline, we see that our linear model explains about 53% of the variation from our data. The significant features at 0.05 threshold include patients
+- sex
+- chest pain type
+- maximum heart rate achieved during exercise
+- chest pain induced by exercise
+- number of major vessels
+- preexisting disorder of thalesemmia
+
+### Model 2: Feature Selection, Step-Wise Approach
+
+```{r}
+summary(lm(diagnosis~ sex + cp + thal + ca + ex_angina  + slope_oldpeak, data = hd_allnum))
+```
+We compare the above model by looking at the adjusted r-square and seeing that it dropped when we only include our significant attributes, which is surprising. Let's see if there is a potential linearity problem by running a reset test. 
+
+```{r}
+resettest(diagnosis~ sex + cp + thal + ca + ex_angina  + slope_oldpeak, power = 2:3,type = "regressor",data = hd_allnum)
+```
+
+Since the p-value is below 0.05, there is a non-linearity problem. This is obvious since our dependent variable and some of the independent variables are nominal. This should point us to try and use a logistic regression insead.
+
+## Logisitc Regression
+
+### Model 1: All features included
+```{r}
+set.seed(707)
+log.m1 <- glm(diagnosis~ ., family = binomial(logit),data = hd_allnum)
+summary(log.m1)
+# McFaddens Pseudo R^2
+# (Null Log Likelihood - Adjusted Model Log Likelihood)/Null Log Likelihood
+(log.m1$null.deviance - log.m1$deviance)/(log.m1$null.deviance)
+```
+The logistic regression model above is found to have a r-square of about 50%, and almost exact same significant attributes, with the addition of resting blood pressure.
+
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ ., family = binomial(logit),data = hd)
+summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
+
+### Model 2: Feature Selection: only significant attributes
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ sex + cp + thal + ca + ex_angina + slope_oldpeak + thalach + rbp, family = binomial(logit),data = hd_allnum)
+# summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
+When we only include significant features we find that the r-square actually drops. So this is the best model we can produce using regression techniques.
+
+
+
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ cp + sex + ca + thal + thalach + 
+                chol + oldpeak , family = binomial(logit),data = hd)
+summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
