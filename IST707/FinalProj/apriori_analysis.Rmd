@@ -1,0 +1,27 @@
+## Apriori Rules
+### Rules with all features included
+
+```{r}
+# Heart disease rules with all attributes
+inspectDT(apriori(hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=HD"))))
+```
+### Rules for predicting Heart Disease with only significant attributes
+```{r}
+# Only significant attributes to subset
+sig_hd <- subset(hd,select = c(sex ,cp , thal,ca, ex_angina, slope_oldpeak, thalach, rbp, diagnosis))
+# Heart-Disease rules
+rulesHD <- apriori(sig_hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=HD")))
+inspectDT(rulesHD)
+```
+
+### Rules for predicting healthy patients with only significant attributes
+```{r}
+# Health Heart Rules
+inspectDT(apriori(sig_hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=NoHD"))))
+```
