@@ -1,0 +1,906 @@
+---
+title: 'IST 707 Final Project: UCI Heart Disease'
+author: "Abdullah Naimzadeh"
+date: "4/7/2021"
+output:
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+According to the CDC, the leading cause of death here in the US is heart disease, in which a quarter of Americans die from. That is no surprise with the rife amount of processed food selections and fast-food chains, and lack of walkable cities. Although we cannot cure heart disease when it is diagnosed, we can mitigate it by making it better. The Cleveland health clinic has found that blood pressure and cholesterol are some of the key indicators to monitor when aiming to mitigate these health concerns. Can these indicators, among others, be used to predict whether or not a patient is at-risk of heart disease? The following investigation will seek to find that out. 
+
+## Heart Disease Data Set
+
+The data to be utilized for our analysis is provided by The Cleveland Clinical Foundation and downloaded from the University of California Irvine's machine learning repository. The observations within the data set include results from 303 patient medical tests. The original results contained over 76 different attributes but most research studies have found 14 to be the most useful. These attributes include patient demographics like age and gender, and the remaining are lab results like blood pressure, exercise induced chest pain, cholesterol levels, etc. The final column is the ultimate diagnosis of the patient having various levels of heart disease or not none at all. The diagnosis will be used as the predicting feature in our models later in this investigation. 
+
+## Packages needed for anaylsis
+These are the necessary packages needed to run throughout our analysis.
+
+```{r}
+
+library(tidyverse)  # data manipulation
+library(dplyr)
+library(lmtest)
+library(MASS)
+library(car)
+library(arules)
+library(arulesViz)
+
+library(ggplot2)  # data visualization
+library(caret)    # implementing with caret
+library(naivebayes) # naive bayes package
+require(e1071)
+require(rpart)
+require(stringr)
+require(randomForest)
+library(rpart) 
+library(rsample)
+
+
+library(tidyverse)    # data manipulation and visualization
+library(kernlab)      # SVM methodology
+library(e1071)        # SVM methodology
+library(RColorBrewer) # customized coloring of plots
+
+
+library(FSelector)
+library(RWeka)       # Weka
+library(party)       # A computational toolbox for recursive partitioning
+library(partykit)    # A toolkit with infrastructure for representing, summarizing, and visualizing tree-structured regression and classification models.
+library(pROC)
+
+```
+
+# Data Preparation
+
+```{r}
+setwd("~/Desktop/GradSchool/Classes/IST707/FinalProj/")
+hd_rawdata <- read.csv("processed.cleveland.data.csv", header = FALSE)
+```
+
+As mentioned earlier, the documentation included in the repo outlines that all ML experiments took a subset of 14 of 76 columns. When loading the data set in, we find that the columns are not labeled. We refer to the notes within the documentation to prepare the data set with the appropriate column names. 
+The full list of features in our data set are
+
+- Age; numeric value in years
+- Sex; binary values with 1 indicated for Male and 0 for Female 
+- Chest Pain Type; ordinal values from 1 to 4 for chest pain types: typical, atypical, non-anginal and asymptomatic
+- Resting Blood Pressure; numeric values measured at time of admission
+- Cholesterol Level; numeric values 
+- Fasting Blood Sugar Level; binary value where true indicates patient fasting blood sugar above 120mg/dl
+- Rest Electrocardiographs results; categorical ECG results for normal, ST-T segment abnormality, and left-ventricular hypertrophy
+- Maximum Heart Rate induced by Exercise; numeric
+- Exercise induced chest pain; binary value with 1 indicating yes or true
+- ST segment depression induced by Exercise; value of slope ST depression
+- The slope of the ST depression induced by Exercise; categorical values with 1 indicating upwards slope, 3 indicating downwards slope and 2 indicating a flat slope
+- Total number of major vessels
+- Evidence of Thalassemia; categorical indicator of inherited blood disorder with 3 meaning normal, 6 a fixed defect and 7 a reversible defect.
+- Diagnosis; ordinal values of heart disease presence with 0 having no heart disease and 1-4 ranging on the severity of the heart disease present.
+
+```{r}
+header_names <-  c('age','sex','cp',
+                   'rbp','chol','fbs','recg',
+                   'thalach','ex_angina','oldpeak','slope_oldpeak',
+                   'ca','thal','diagnosis')
+colnames(hd_rawdata) <- header_names
+head(hd_rawdata)
+```
+
+In checking for null values we find that 
+
+```{r}
+
+hd_rawdata$ca <- as.numeric(hd_rawdata$ca)
+hd_rawdata$thal <- as.numeric(hd_rawdata$thal)
+
+```
+
+```{r}
+colSums(is.na(hd_rawdata))
+```
+All data is displayed numerically. But this won't mean much to the average person. Following the heart-disease names documentation provided, we will try to rename some of the values and factorize to reflect back to the original data.
+
+```{r}
+
+hd_rawdata[is.na(hd_rawdata$thal),]
+hd_rawdata[is.na(hd_rawdata$ca),]
+```
+```{r}
+median(hd_rawdata$thal, na.rm = TRUE)
+hd_rawdata$thal <- replace_na(hd_rawdata$thal,median(hd_rawdata$thal,na.rm = TRUE))
+
+median(hd_rawdata$ca, na.rm = TRUE)
+hd_rawdata$ca <- replace_na(hd_rawdata$ca,median(hd_rawdata$ca,na.rm = TRUE))
+```
+```{r}
+table(hd_rawdata$sex,hd_rawdata$diagnosis,dnn = c('sex','diagnosis'))
+table(hd_rawdata$diagnosis,hd_rawdata$cp,dnn = c('diagnosis','chest pain'))
+table(hd_rawdata$diagnosis,hd_rawdata$fbs,dnn = c('diagnosis','fasting blood sugar > 120 mg/dl '))
+table(hd_rawdata$diagnosis,hd_rawdata$recg,dnn = c('diagnosis','rest ECG'))
+table(hd_rawdata$diagnosis,hd_rawdata$ex_angina,dnn = c('diagnosis','exercise-induced angina?'))
+table(hd_rawdata$diagnosis,hd_rawdata$ca,dnn = c('diagnosis','# major vessels'))
+table(hd_rawdata$diagnosis,hd_rawdata$thal,dnn = c('diagnosis','thalassemia (disorder)'))
+
+```
+
+
+```{r}
+hd_clean <- hd_rawdata
+hd <- hd_clean
+hd$diagnosis[hd$diagnosis>0] <- 1
+hd_allnum <- hd
+```
+
+```{r}
+hd.cor <- cor(hd)
+corrplot::corrplot(hd.cor)
+```
+
+
+
+```{r}
+
+#factor diagnosis
+hd$diagnosis <- factor(hd$diagnosis, labels = c("NoHD", "HD"))
+
+#sex
+hd$sex <- factor(hd$sex, labels = c("F", "M"))
+
+
+#exercise induced angina?
+hd <- hd %>% mutate(ex_angina = ifelse(ex_angina == 1,'T','F'))
+hd$ex_angina <- as.factor(hd$ex_angina)
+
+# is the fasting blood sugar > 120 mg/dl?
+hd <- hd %>% mutate(fbs = ifelse(fbs == 1,'T','F'))
+hd$fbs <- as.factor(hd$fbs)
+
+# resting blood pressure, heart.org
+hd <- hd %>% mutate(rbp = ifelse(rbp <= 120,"Norm","Hyper"))
+hd$rbp <- as.factor(hd$rbp)
+
+# chest pain experienced
+hd <- hd %>% mutate(cp = ifelse(cp == 1,"Typ",
+                                        ifelse(cp == 2, "ATyp",
+                                          ifelse(cp==3,"Non-ang_pain","Asymp"))))
+hd$cp <- as.factor(hd$cp)
+
+#resting electrocardiographic results
+hd <- hd %>% mutate(recg = ifelse(recg == 0,"Norm",
+                                     ifelse(recg == 1, "STTAbnorm","lvent_hyper")))  
+hd$recg <- as.factor(hd$recg)
+
+#cholesterol levels
+hd <- hd %>% mutate(chol = ifelse(chol > 240,"High",
+                                  ifelse(chol < 200,"Norm","AtRisk")))  
+hd$chol <- as.factor(hd$chol)
+
+# slope of ST depression induced by exercise relative to rest at peak segment
+hd <- hd %>% mutate(slope_oldpeak = ifelse(slope_oldpeak == 1,"Up",
+                                     ifelse(slope_oldpeak == 2, "Flat","Down")))  
+hd$slope_oldpeak <- as.factor(hd$slope_oldpeak)
+
+# blood disorder called thalassemia
+hd$thal <- as.factor(hd$thal)
+levels(hd$thal) <- c('Norm','Fxd_Def','Rev_Def')
+
+# count of major vessels
+hd$ca <- as.factor(hd$ca)
+levels(hd$ca) <- c(0,1,2,3)
+
+#max heart rate achieved results, hopkinsmedicine.org
+hd <- hd %>% mutate(thalach = ifelse(thalach > (220-age)*.85,"High","Norm"))
+hd$thalach <-  as.factor(hd$thalach)
+
+hd <- hd %>% mutate(age_disc = cut(age, breaks = c(20,30,40,50,60,70,100), labels = c("twenties","thirties","forties","fifties", "sixties","seventies")))
+hd <- subset(hd,select = -age)
+
+```
+
+```{r}
+table(hd$diagnosis,hd$sex)
+```
+
+```{r}
+table(hd$diagnosis,hd$age_disc)
+table(hd$diagnosis,hd$rbp)
+table(hd$diagnosis,hd$chol)
+table(hd$diagnosis,hd$recg)
+table(hd$diagnosis,hd$slope_oldpeak)
+```
+
+Looking at patient Ages
+
+```{r}
+hist(hd_allnum$age, main = 'Ages of the Patients',xlab = 'Age',border = 'black',col = 'lightblue',xlim = c(20,80))
+
+ggplot(hd_allnum) + geom_violin(aes(y = age, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Age")
+
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = thalach, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Max Heart Rate")
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = rbp, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Resting Blood Pressure")
+```
+
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = oldpeak, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by ST Depression caused by exercise")
+```
+```{r}
+ggplot(hd_allnum) + geom_violin(aes(y = chol, x = as.factor(diagnosis))) + theme(text = element_text(size=15))+  ggtitle("Diagnosis by Cholesterol")
+```
+
+## Summary 
+
+Our above exploration has revealed many notable findings within our dataset. In regards to medical research, it is widely known that there is bias in the findings of many papers. Historically,women and minorities are often underrepresented in research groups, and thus generalization leads to sometimes fatally incorrect diagnosis' due to the differences in biologies between underrepresented populations and white males. Thus it was no surprise that after pre-processing, it was found that more than half of the patients in our data set were males. More specifically, 114 of 139 patients that were diagnosed as having heart disease were male. Does this mean that females are typically healthier than males? Not necessarily. But this shows how one must be careful of solely relying on ML algorithms to predict whether or not a patient will, or has heart disease. 
+
+Some other interesting things to point out:
+
+- Very few patients indicated normal chest pain (angina)
+- Many patients whom are healthy have ST Depression of zero, or normal ECG results
+- Healthier patients can reach a higher max heart rate when exercising
+- The majority of patients with heart disease are in there 50's-early 60's
+
+# Analysis
+
+The layout for further analyzing the data: 
+
+1). Regression models to identify significant variables 
+
+2). Apriori to see which results are commonly grouped with heart disease
+
+3). Classification algorithms include
+
+  - Naive-Bayes
+  - Decision Trees
+  - Random Forest
+  - SVM
+
+## Linear Regression
+
+
+### Model 1: All features included
+
+```{r}
+set.seed(707)
+summary(lm(diagnosis~ . , data = hd_allnum))
+```
+As a baseline, we see that our linear model explains about 53% of the variation from our data. The significant features at 0.05 threshold include patients
+- sex
+- chest pain type
+- maximum heart rate achieved during exercise
+- chest pain induced by exercise
+- number of major vessels
+- preexisting disorder of thalesemmia
+
+### Model 2: Feature Selection, Step-Wise Approach
+
+```{r}
+summary(lm(diagnosis~ sex + cp + thal + ca + ex_angina  + slope_oldpeak, data = hd_allnum))
+```
+We compare the above model by looking at the adjusted r-square and seeing that it dropped when we only include our significant attributes, which is surprising. Let's see if there is a potential linearity problem by running a reset test. 
+
+```{r}
+resettest(diagnosis~ sex + cp + thal + ca + ex_angina  + slope_oldpeak, power = 2:3,type = "regressor",data = hd_allnum)
+```
+
+Since the p-value is below 0.05, there is a non-linearity problem. This is obvious since our dependent variable and some of the independent variables are nominal. This should point us to try and use a logistic regression insead.
+
+## Logisitc Regression
+
+### Model 1: All features included
+```{r}
+set.seed(707)
+log.m1 <- glm(diagnosis~ ., family = binomial(logit),data = hd_allnum)
+summary(log.m1)
+
+# McFaddens Pseudo R^2
+# (Null Log Likelihood - Adjusted Model Log Likelihood)/Null Log Likelihood
+
+(log.m1$null.deviance - log.m1$deviance)/(log.m1$null.deviance)
+```
+The logistic regression model above is found to have a r-square of about 50%, and almost exact same significant attributes, with the addition of resting blood pressure.
+
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ ., family = binomial(logit),data = hd)
+summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
+
+### Model 2: Feature Selection: only significant attributes
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ sex + cp + thal + ca + ex_angina + slope_oldpeak + thalach + rbp, family = binomial(logit),data = hd_allnum)
+# summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
+When we only include significant features we find that the r-square actually drops. So this is the best model we can produce using regression techniques.
+
+
+
+```{r}
+set.seed(707)
+log.m2 <- glm(diagnosis~ cp + sex + ca + thal + thalach + 
+                chol + oldpeak , family = binomial(logit),data = hd)
+summary(log.m2)
+(log.m2$null.deviance - log.m2$deviance)/(log.m2$null.deviance)
+```
+
+## Apriori Rules
+### Rules with all features included
+
+```{r}
+# Heart disease rules with all attributes
+inspectDT(apriori(hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=HD"))))
+```
+### Rules for predicting Heart Disease with only significant attributes
+```{r}
+# Only significant attributes to subset
+sig_hd <- subset(hd,select = c(sex ,cp , thal,ca, ex_angina, slope_oldpeak, thalach, rbp, diagnosis))
+
+# Heart-Disease rules
+rulesHD <- apriori(sig_hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=HD")))
+inspectDT(rulesHD)
+```
+
+### Rules for predicting healthy patients with only significant attributes
+```{r}
+# Health Heart Rules
+inspectDT(apriori(sig_hd, parameter = list(supp = 0.1, conf = 0.8, maxlen = 10),
+                     control=list(verbose=F),
+                     appearance=list(default="lhs",rhs=c("diagnosis=NoHD"))))
+
+```
+
+# Training and Testing Classification Algorithms
+
+## SVM 
+
+
+```{r}
+set.seed(707)
+
+hd_allnum$diagnosis <- as.factor(hd_allnum$diagnosis)
+levels(hd_allnum$diagnosis) <- c('noHD', 'HD')
+
+
+svm_split <- createDataPartition(hd_allnum$diagnosis, p = 2/3, list = FALSE)
+svm_train <- hd_allnum[svm_split, ]
+svm_test  <- hd_allnum[-svm_split, ]
+```
+
+
+### Model 1: SVM with Linear kernel
+
+For the a linear SVM, the only parameter needed to vary is C, and as mentioned before the out put of the search grid aims to find the C value that gives the highest accuracy.
+
+```{r}
+set.seed(707)
+
+search_grid = expand.grid(C = seq(0.1, 2, length = 10))
+
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3,
+  classProbs = TRUE
+  )
+
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10,
+  classProbs = TRUE
+  )
+
+
+system.time(svm.Linear <-  train(diagnosis ~., data = svm_train, 
+      method = "svmLinear", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+
+# top 5 modesl
+svm.Linear$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+
+# results for best model
+confusionMatrix(svm.Linear)
+```
+
+```{r}
+pred <- predict(svm.Linear, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+```{r}
+pred_numeric = predict(svm.Linear, newdata = svm_test, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+
+## SVM with Polynomial Kernel
+
+The polynomial kernel function can be implemented with the SVM algorithm. As such, the parameters needed will add complexity to the searching space. Due to the size of the data set, we will evaluate polynomials of degree 2 and degree 3. The scale reflects the precision required for the polynomial parameter tuning. C is reduced to 10 choices. This search grid produces 180 possible models, which means that the time to compute will be fairly large for this data set.
+
+```{r}
+set.seed(707)
+search_grid = expand.grid(degree=c(2,3),
+                          scale = c(0.001, 0.01, 0.1, 1.0),
+                          C = seq(0.1, 2, length = 10))
+
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+
+
+system.time(svm.Poly1 <-  train(diagnosis ~., data = svm_train, 
+      method = "svmPoly", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+      
+
+# top 5 modesl
+svm.Poly1$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+
+# results for best model
+confusionMatrix(svm.Poly1,)
+```
+```{r}
+pred <- predict(svm.Poly1, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(svm.Poly1, newdata = svm_test ,type = "prob")
+
+```
+
+### SVM with Radial Kernel
+
+The radial kernel function may be implemented as well, when it is found that the data is not linearly separable. Two parameters are necessary here to tune, with 5 choices each. Here sigma accounts for how smooth the decision boundary will be. The combinations between C and sigma will produce 75 possible models and is also expected to have a long compute time.
+
+```{r}
+set.seed(707)
+search_grid = expand.grid(sigma = seq(0.1, 2, length=10),
+                      C = seq(0.1, 2, length = 10))
+
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+
+# more advanced option, run 3 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+
+
+system.time(svm.Radial <- train(diagnosis ~., data = svm_train, 
+      method = "svmRadial", 
+      trControl = train_control,
+      tuneGrid = search_grid))
+
+# top 5 modesl
+svm.Radial$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+
+# results for best model
+confusionMatrix(svm.Radial)
+```
+
+```{r}
+pred <- predict(svm.Radial, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+
+```
+
+```{r}
+pred_numeric = predict(svm.Radial, newdata = svm_test)
+```
+
+
+## Decision Trees
+
+```{r}
+set.seed(707)
+hd_split <- createDataPartition(hd$diagnosis, p = 2/3, list = FALSE)
+train_data <- hd[hd_split, ]
+test_data  <- hd[-hd_split, ]
+information.gain(diagnosis~., data = train_data)
+```
+
+
+### Model 1: 
+
+```{r}
+set.seed(707)
+## build up a default C4.5 model
+DT_m1 <- J48 (diagnosis~., data = train_data)
+
+## use cross-validation tech to evaluate the model
+eval_DT1 <- evaluate_Weka_classifier(DT_m1, numFolds = 10, class = TRUE) # setting the number of folds to 10 for all models
+
+## show the performance
+print(paste("accuracy: ", eval_DT1$details['pctCorrect']))
+
+## predict the results for test data
+pred=predict(DT_m1, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+if(require("party", quietly = TRUE)) plot(DT_m1)
+```
+
+```{r}
+pred_numeric = predict(DT_m1, newdata = test_data, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+### Model 2: Tuning Hyperparametrs with CV
+```{r}
+## set up potential values for confidence factor and minimum number of instances
+C.values <- c(0.01,0.05,0.10,0.15,0.20,0.25,0.30,0.35,0.40,0.45,0.5)
+M.values <- c(2,3,4,5,6,7,8,9,10)
+
+## variable to record the best model
+best_performance = 0.0
+best_c <- 0.0
+best_m <- 0.0
+
+for (i in 1:length(C.values)) {
+  
+  for (j in 1:length(M.values)) {
+    
+    c_value = C.values[i]
+    
+    m_value = M.values[j]
+    
+    m <- J48(diagnosis~., data = train_data, 
+             control = Weka_control(U=FALSE, C = c_value, M=m_value))
+  
+    e <- evaluate_Weka_classifier(m,
+                                  numFolds = 10, complexity = TRUE,
+                                  seed = 9, class = TRUE)
+
+    if (e$details['pctCorrect'] > best_performance) {
+      best_performance <- e$details['pctCorrect']
+      
+      best_c <- c_value
+      best_m <- m_value
+    }
+    
+  }
+    
+}
+
+print(paste("best accuracy: ", best_performance))
+print(paste("best m: ", best_m))
+print(paste("best c: ", best_c))
+
+DT_m2 <- J48(diagnosis~., data = train_data, control=Weka_control(U=FALSE, M=best_m, C=best_c))
+
+pred <- predict(DT_m2, newdata = test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+if(require("party", quietly = TRUE)) plot(DT_m2)
+```
+```{r}
+pred_numeric = predict(DT_m2, newdata = test_data, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+### Model 3: Using Validation Set instead of CV
+
+```{r}
+inTrain<-createDataPartition(y = train_data$diagnosis,p=0.75,list = FALSE)
+training_set<-train_data[inTrain,]
+valid_set<-train_data[-inTrain,]
+
+M.values <- c(3,4,5,6,7,8,9,10)
+
+best_performance = 0.0
+best_m <- 0.0
+
+for (j in 1:length(M.values)) {
+  
+  c_value = C.values[i]
+  
+  m_value = M.values[j]
+  
+  m <- J48(diagnosis~., data = training_set, 
+           control = Weka_control(R=TRUE, M=m_value))
+
+  e <- evaluate_Weka_classifier(m, newdata = valid_set,
+                           complexity = TRUE,class = TRUE)
+
+  if (e$details['pctCorrect'] > best_performance) {
+    best_performance <- e$details['pctCorrect']
+    
+    best_m <- m_value
+  }
+  
+}
+
+print(paste("best accuracy: ", best_performance))
+print(paste("best m: ", best_m))
+
+DT_m3 <- J48(diagnosis~., data = training_set, control=Weka_control(R=TRUE, M=best_m))
+
+pred <- predict(DT_m3, newdata = test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+
+```
+```{r}
+pred_numeric = predict(DT_m3, newdata = test_data, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+## Random Forest
+```{r}
+# for reproduciblity
+set.seed(707)
+
+# default RF model
+system.time(rf <- randomForest(
+  formula = diagnosis ~ .,
+  data = train_data,
+  ntree = 500,
+  mtry = 1,
+  proximity = TRUE  
+))
+
+rf
+
+plot(rf)
+
+# results for best model
+#confusionMatrix(rf)
+
+pred <- predict(rf, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(rf, newdata = test_data, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric[,2],
+               response=test_data$diagnosis,
+               levels=rev(levels(test_data$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+```{r}
+set.seed(707)
+
+# set up 3-fold cross validation procedure
+train_control <- trainControl(
+  method = "cv", 
+  number = 3
+  )
+
+# more advanced option, run 5 fold cross validation 10 times
+train_control_adv <- trainControl(
+  method = "repeatedcv", 
+  number = 3,
+  repeats = 10
+  )
+
+rf.m1 <- train(diagnosis ~., data = train_data, 
+      method = "rf",
+      metric = 'Accuracy',
+      trControl = train_control)
+
+# top 5 models
+rf.m1$results %>% 
+  top_n(5, wt = Accuracy) %>%
+  arrange(desc(Accuracy))
+
+# results for best model
+CM <- confusionMatrix(rf.m1)
+CM
+```
+
+
+```{r}
+pred <- predict(rf.m1, test_data)
+CM <- confusionMatrix(pred, test_data$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+```
+
+```{r}
+pred_numeric = predict(rf.m1, newdata = test_data, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+
+## Naïve Bayes
+
+### Model 1: Base naïve Bayes model with 3-fold cross validation. 
+
+Similar to the decision tree approach, we create a baseline model we can compare the model, with k-fold equal to 3. 
+There are different approaches in which package to use to apply naïve Bayes. In this investigation we will stick with the caret package that allows us to implement the same framework as with our decision tree, and keep track of the hyperparameters that we will be tuning.
+
+```{r}
+# create response and feature data
+features <- setdiff(names(svm_train), "diagnosis")
+x <- svm_train[, features]
+y <- svm_train$diagnosis
+```
+
+```{r}
+set.seed(707)
+# train model
+nb.m1 <- train(
+  x = x,
+  y = y,
+  method = "naive_bayes",
+  trControl = train_control
+  )
+
+# results
+confusionMatrix(nb.m1)
+```
+
+```{r}
+pred <- predict(nb.m1, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+
+```
+```{r}
+pred_numeric = predict(nb.m1, newdata = svm_test, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
+
+
+### Model 2: Optimizing our naïve Bayes model
+
+```{r}
+set.seed(707)
+# set up tuning grid
+search_grid_nb <- expand.grid(usekernel = c(TRUE, FALSE),
+                         laplace = c(0, 1), 
+                         adjust = c(0.5,1,2))
+
+# train model
+nb.m2 <- train(
+  x = x,
+  y = y,
+  method = "naive_bayes",
+  trControl = train_control,
+  tuneGrid = search_grid_nb
+  )
+
+# results for best model
+confusionMatrix(nb.m2)
+```
+Not much improvement in when we utilized a search grid.
+
+```{r}
+pred <- predict(nb.m2, newdata = svm_test)
+CM <- confusionMatrix(pred, svm_test$diagnosis)
+CM
+print('========= Recall/Sensitivity =========') 
+CM$byClass[6]
+
+```
+
+We see that the recall has not changed at all, but the F1 score has dropped a little.
+
+```{r}
+pred_numeric = predict(nb.m2, newdata = svm_test, type="prob")
+
+# plot ROC and get AUC
+roc <- roc(predictor=pred_numeric$HD,
+               response=svm_test$diagnosis,
+               levels=rev(levels(svm_test$diagnosis)))
+
+roc$auc
+#Area under the curve
+plot(roc,main="ROC")
+```
